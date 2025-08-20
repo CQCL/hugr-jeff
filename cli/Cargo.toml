@@ -1,0 +1,37 @@
+[package]
+name = "hugr-jeff-cli"
+version = "0.14.3"
+edition = { workspace = true }
+rust-version = { workspace = true }
+license = { workspace = true }
+readme = "README.md"
+documentation = "https://docs.rs/hugr-jeff-cli/"
+homepage = { workspace = true }
+repository = { workspace = true }
+description = "CLI for running the HUGR <-> jeff translation."
+keywords = ["Quantum"]
+categories = ["compilers"]
+publish = false
+
+default-run = "hugr-jeff"
+
+[dependencies]
+clap = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+itertools = { workspace = true }
+hugr = { workspace = true }
+jeff-quantum = { workspace = true }
+
+hugr-jeff = { path = ".." }
+
+[lints]
+workspace = true
+
+[package.metadata.cargo-semver-checks.lints]
+workspace = true
+
+[[bin]]
+name = "hugr-jeff"
+path = "src/main.rs"
+doc = false
+bench = false

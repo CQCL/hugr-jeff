@@ -1,0 +1,71 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0 # Use the ref you want to point at
+    hooks:
+      - id: check-added-large-files
+      - id: check-case-conflict
+      - id: check-executables-have-shebangs
+      - id: check-merge-conflict
+      - id: check-toml
+      - id: check-vcs-permalinks
+      - id: check-yaml
+      - id: detect-private-key
+      - id: end-of-file-fixer
+        exclude: |
+          (?x)^(
+            .*\.snap|
+            .*\.snap\.new|
+            .*\.ambr|
+            .release-please-manifest.json
+          )$
+      - id: trailing-whitespace
+        exclude: |
+          (?x)^(
+            .*\.snap|
+            .*\.ambr|
+            .*\.snap\.new
+          )$
+      - id: fix-byte-order-marker
+      - id: mixed-line-ending
+  - repo: https://github.com/hukkin/mdformat
+    rev: 0.7.22
+    hooks:
+      - id: mdformat
+        args: ["--wrap", "80"]
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo format
+        description: Format rust code with `cargo fmt`.
+        entry: cargo fmt --all -- --check
+        language: system
+        files: \.rs$
+        pass_filenames: false
+      - id: cargo-check
+        name: cargo check
+        description: Check rust code with `cargo check`.
+        entry: cargo check --all --all-features --workspace
+        language: system
+        files: \.rs$
+        pass_filenames: false
+      - id: cargo-test
+        name: cargo test
+        description: Run tests with `cargo test`.
+        entry: cargo test --all-features --workspace
+        language: system
+        files: \.rs$
+        pass_filenames: false
+      - id: cargo-clippy
+        name: cargo clippy
+        description: Run clippy lints with `cargo clippy`.
+        entry: cargo clippy --all-targets --all-features --workspace -- -D warnings
+        language: system
+        files: \.rs$
+        pass_filenames: false
+      - id: cargo-doc
+        name: cargo doc
+        description: Generate documentation with `cargo doc`.
+        entry: sh -c "RUSTDOCFLAGS=-Dwarnings cargo doc --no-deps --all-features --workspace"
+        language: system
+        files: \.rs$
+        pass_filenames: false
