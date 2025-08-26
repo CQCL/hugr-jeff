@@ -1,17 +1,11 @@
-use hugr::extension::prelude::qb_t;
-use hugr::hugr::hugrmut::HugrMut;
-use hugr::ops::OpTrait;
-use hugr::{HugrView, IncomingPort, OutgoingPort};
 use itertools::Itertools;
 use jeff::reader::optype as jeff_optype;
-use tket::extension::rotation::RotationOp;
 
 use crate::JeffToHugrError;
 use crate::extension::JeffOp;
 use crate::to_hugr::BuildContext;
 
 use super::JeffToHugrOp;
-use super::to_hugr::build_single_op;
 
 /// Translation for _jeff_ quantum ops
 impl JeffToHugrOp for jeff_optype::QubitOp<'_> {
@@ -22,19 +16,21 @@ impl JeffToHugrOp for jeff_optype::QubitOp<'_> {
         ctx: &mut BuildContext,
     ) -> Result<(), JeffToHugrError> {
         match self {
-            jeff_optype::QubitOp::Alloc => build_single_op(tket::TketOp::QAlloc, op, builder, ctx)?,
-            jeff_optype::QubitOp::Free => build_single_op(tket::TketOp::QFree, op, builder, ctx)?,
+            jeff_optype::QubitOp::Alloc => {
+                ctx.build_single_op(tket::TketOp::QAlloc, op, builder)?
+            }
+            jeff_optype::QubitOp::Free => ctx.build_single_op(tket::TketOp::QFree, op, builder)?,
             // TODO: Define a custom op for freeing qubits that are known to be in the |0> state.
             jeff_optype::QubitOp::FreeZero => {
-                build_single_op(tket::TketOp::QFree, op, builder, ctx)?
+                ctx.build_single_op(tket::TketOp::QFree, op, builder)?
             }
             jeff_optype::QubitOp::Measure => {
-                build_single_op(tket::TketOp::MeasureFree, op, builder, ctx)?
+                ctx.build_single_op(tket::TketOp::MeasureFree, op, builder)?
             }
             jeff_optype::QubitOp::MeasureNd => {
-                build_single_op(tket::TketOp::Measure, op, builder, ctx)?
+                ctx.build_single_op(tket::TketOp::Measure, op, builder)?
             }
-            jeff_optype::QubitOp::Reset => build_single_op(tket::TketOp::Reset, op, builder, ctx)?,
+            jeff_optype::QubitOp::Reset => ctx.build_single_op(tket::TketOp::Reset, op, builder)?,
             jeff_optype::QubitOp::Gate(gate_op) => gate_op.build_hugr_op(op, builder, ctx)?,
             _ => return Err(JeffToHugrError::unsupported_op(self)),
         };
@@ -49,99 +45,78 @@ impl JeffToHugrOp for jeff_optype::GateOp<'_> {
         builder: &mut impl hugr::builder::Dataflow,
         ctx: &mut BuildContext,
     ) -> Result<(), JeffToHugrError> {
-        let name = self.name;
-        let qubits = self.num_qubits as usize;
-        let params = self.num_params as usize;
-
-        match (name.to_lowercase().as_str(), qubits, params) {
-            ("h", 1, 0) | ("hadamard", 1, 0) => build_single_op(tket::TketOp::H, op, builder, ctx)?,
-            ("cx", 2, 0) | ("cnot", 2, 0) => build_single_op(tket::TketOp::CX, op, builder, ctx)?,
-            ("cy", 2, 0) => build_single_op(tket::TketOp::CY, op, builder, ctx)?,
-            ("cz", 2, 0) => build_single_op(tket::TketOp::CZ, op, builder, ctx)?,
-            ("crz", 2, 1) => build_parametric_gate(tket::TketOp::CRz, op, builder, ctx)?,
-            ("t", 1, 0) => build_single_op(tket::TketOp::T, op, builder, ctx)?,
-            ("tdg", 1, 0) => build_single_op(tket::TketOp::Tdg, op, builder, ctx)?,
-            ("s", 1, 0) => build_single_op(tket::TketOp::S, op, builder, ctx)?,
-            ("sdg", 1, 0) => build_single_op(tket::TketOp::Sdg, op, builder, ctx)?,
-            ("x", 1, 0) => build_single_op(tket::TketOp::X, op, builder, ctx)?,
-            ("y", 1, 0) => build_single_op(tket::TketOp::Y, op, builder, ctx)?,
-            ("z", 1, 0) => build_single_op(tket::TketOp::Z, op, builder, ctx)?,
-            ("rx", 1, 1) => build_parametric_gate(tket::TketOp::Rx, op, builder, ctx)?,
-            ("ry", 1, 1) => build_parametric_gate(tket::TketOp::Ry, op, builder, ctx)?,
-            ("rz", 1, 1) => build_parametric_gate(tket::TketOp::Rz, op, builder, ctx)?,
-            ("toffoli", 3, 0) => build_single_op(tket::TketOp::Toffoli, op, builder, ctx)?,
-            ("swap", 2, 0) => {
-                let inputs = op.inputs().collect::<Result<Vec<_>, _>>()?;
-                let outputs = op.outputs().collect::<Result<Vec<_>, _>>()?;
-                ctx.merge_with_earlier(outputs[0].id(), inputs[1].id());
-                ctx.merge_with_earlier(outputs[1].id(), inputs[0].id());
+        match self.gate_type {
+            jeff_optype::GateOpType::WellKnown(well_known) => {
+                build_well_known_gate(well_known, *self, op, builder, ctx)
             }
-            _ => build_parametric_gate(
-                JeffOp::parametric_gate(name.to_string(), qubits, params),
-                op,
-                builder,
-                ctx,
-            )?,
-        };
-        Ok(())
+            jeff_optype::GateOpType::PauliProdRotation { pauli_string } => {
+                ctx.build_single_op(JeffOp::jeff_gate_op(pauli_string, self), op, builder)
+            }
+            jeff_optype::GateOpType::Custom { name, .. } => {
+                ctx.build_single_op(JeffOp::jeff_gate_op(name, self), op, builder)
+            }
+        }
     }
 }
 
-/// Build a quantum operation with some input f64 parameters.
+/// Adds a well-known gate to the HUGR.
 ///
-/// The parameters have to be converted to "rotation"s before being passed to the tket operation.
-fn build_parametric_gate(
-    op: impl Into<hugr::ops::OpType>,
-    jeff_op: &jeff::reader::Operation<'_>,
+/// Reads the extra parameters from the gate operation if any.
+fn build_well_known_gate(
+    wk_gate: jeff_optype::WellKnownGate,
+    gate_op: jeff_optype::GateOp<'_>,
+    op: &jeff::reader::Operation<'_>,
     builder: &mut impl hugr::builder::Dataflow,
     ctx: &mut BuildContext,
 ) -> Result<(), JeffToHugrError> {
-    let op: hugr::ops::OpType = op.into();
+    use jeff_optype::WellKnownGate::*;
 
-    // Compute the number of qubits and parameters
-    let sig = op.dataflow_signature().unwrap();
-    let qubit_type = qb_t();
-    let rotation_type = tket::extension::rotation::rotation_type();
-    let mut input_types = sig.input_types().iter();
-    let qubits = input_types.take_while_ref(|t| t == &&qubit_type).count();
-    let params = input_types.take_while_ref(|t| t == &&rotation_type).count();
-    debug_assert!(input_types.next().is_none());
+    let mut build_self_inverse = |tket_op, pwr| match pwr % 2 == 0 {
+        true => ctx.build_transparent_op(op),
+        false => ctx.build_single_op(tket_op, op, builder),
+    };
 
-    // We first need to convert the f64 parameters to "rotation"s.
-    //
-    // TODO: Do we need to convert the value? HUGR expects half-turns.
-    let mut rotations = Vec::with_capacity(params);
-    for _ in 0..params {
-        let node = builder.add_child_node(RotationOp::from_halfturns_unchecked);
-        rotations.push(node);
-    }
-
-    let op_node = builder.add_child_node(op);
-
-    // Internal connections between the f64 conversion nodes and the operation node.
-    for (i, rot_node) in rotations.iter().enumerate() {
-        let rot_port = OutgoingPort::from(0);
-        builder
-            .hugr_mut()
-            .connect(*rot_node, rot_port, op_node, IncomingPort::from(i + qubits));
-    }
-
-    for (i, value) in jeff_op.inputs().enumerate() {
-        let value_id = value?.id();
-        if i < qubits {
-            // Boundary connection into the quantum operation
-            let port = IncomingPort::from(i);
-            ctx.register_input(value_id, op_node, port);
-        } else {
-            // Connection to the f64 conversion nodes
-            let port = IncomingPort::from(0);
-            ctx.register_input(value_id, rotations[i - qubits], port);
+    match (
+        wk_gate,
+        gate_op.adjoint,
+        gate_op.control_qubits,
+        gate_op.power,
+    ) {
+        // Any operation with power 0 is a no-op.
+        (_, _, _, 0) => {
+            let qubits = gate_op.num_qubits();
+            for (input, output) in op.inputs().zip(op.outputs()).take(qubits) {
+                let input = input?.id();
+                let output = output?.id();
+                ctx.merge_with_earlier(output, input);
+            }
+            Ok(())
         }
+        (I, _, _, _) => ctx.build_transparent_op(op),
+        (H, _, 0, pwr) => build_self_inverse(tket::TketOp::H, pwr),
+        (X, _, 0, pwr) => build_self_inverse(tket::TketOp::X, pwr),
+        (Y, _, 0, pwr) => build_self_inverse(tket::TketOp::Y, pwr),
+        (Z, _, 0, pwr) => build_self_inverse(tket::TketOp::Z, pwr),
+        (S, false, 0, 1) => ctx.build_single_op(tket::TketOp::S, op, builder),
+        (S, true, 0, 1) => ctx.build_single_op(tket::TketOp::Sdg, op, builder),
+        (T, false, 0, 1) => ctx.build_single_op(tket::TketOp::T, op, builder),
+        (T, true, 0, 1) => ctx.build_single_op(tket::TketOp::Tdg, op, builder),
+        (Rx, false, 0, 1) => ctx.build_single_op(tket::TketOp::Rx, op, builder),
+        (Ry, false, 0, 1) => ctx.build_single_op(tket::TketOp::Ry, op, builder),
+        (Rz, false, 0, 1) => ctx.build_single_op(tket::TketOp::Rz, op, builder),
+        (Swap, _, 0, pwr) => match pwr % 2 == 0 {
+            true => ctx.build_transparent_op(op),
+            false => {
+                let [a, b] = op
+                    .inputs()
+                    .map(|v| v.unwrap().id())
+                    .collect_array()
+                    .expect("2 inputs");
+                ctx.merge_with_earlier(b, a);
+                ctx.merge_with_earlier(a, b);
+                Ok(())
+            }
+        },
+        _ => ctx.build_single_op(JeffOp::jeff_gate_op(wk_gate, &gate_op), op, builder),
     }
-    for (port, value) in builder.hugr().node_outputs(op_node).zip(jeff_op.outputs()) {
-        let value = value?;
-        ctx.register_output(value.id(), op_node, port);
-    }
-
-    Ok(())
 }

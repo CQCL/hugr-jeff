@@ -4,8 +4,7 @@
 mod jeff_op;
 mod jeff_type;
 
-use hugr::types::TypeBound;
-use hugr::types::type_param::TypeParam;
+use hugr::types::{Term, TypeBound};
 pub use jeff_op::{JeffOp, JeffOpDef};
 pub use jeff_type::{
     ConstIntReg, FLOATREG_TYPE_ID, INTREG_TYPE_ID, QUREG_TYPE_ID, floatreg_custom_type,
@@ -37,7 +36,7 @@ lazy_static! {
                 QUREG_TYPE_ID,
                 vec![],
                 "jeff quantum register".to_owned(),
-                TypeBound::Any.into(),
+                TypeBound::Linear.into(),
                 extension_ref,
             )
             .unwrap();
@@ -45,7 +44,7 @@ lazy_static! {
             extension
             .add_type(
                 INTREG_TYPE_ID,
-                vec![TypeParam::max_nat()],
+                vec![Term::max_nat_type()],
                 "jeff integer register".to_owned(),
                 TypeBound::Copyable.into(),
                 extension_ref,
@@ -54,7 +53,7 @@ lazy_static! {
             extension
             .add_type(
                 FLOATREG_TYPE_ID,
-                vec![TypeParam::max_nat()],
+                vec![Term::max_nat_type()],
                 "jeff floating-point register".to_owned(),
                 TypeBound::Copyable.into(),
                 extension_ref,

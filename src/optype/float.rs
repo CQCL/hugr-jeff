@@ -6,7 +6,6 @@ use crate::JeffToHugrError;
 use crate::to_hugr::BuildContext;
 
 use super::JeffToHugrOp;
-use super::to_hugr::{build_constant_op, build_single_op};
 
 /// Translation for _jeff_ quantum ops
 impl JeffToHugrOp for jeff_optype::FloatOp {
@@ -18,24 +17,24 @@ impl JeffToHugrOp for jeff_optype::FloatOp {
     ) -> Result<(), JeffToHugrError> {
         match self {
             jeff_optype::FloatOp::Const32(f) => {
-                build_constant_op(ConstF64::new(*f as f64), op, builder, ctx)?
+                ctx.build_constant_value(ConstF64::new(*f as f64), op, builder)?
             }
             jeff_optype::FloatOp::Const64(f) => {
-                build_constant_op(ConstF64::new(*f), op, builder, ctx)?
+                ctx.build_constant_value(ConstF64::new(*f), op, builder)?
             }
-            jeff_optype::FloatOp::Add => build_single_op(FloatOps::fadd, op, builder, ctx)?,
-            jeff_optype::FloatOp::Sub => build_single_op(FloatOps::fsub, op, builder, ctx)?,
-            jeff_optype::FloatOp::Mul => build_single_op(FloatOps::fmul, op, builder, ctx)?,
-            jeff_optype::FloatOp::Pow => build_single_op(FloatOps::fpow, op, builder, ctx)?,
-            jeff_optype::FloatOp::Eq => build_single_op(FloatOps::feq, op, builder, ctx)?,
-            jeff_optype::FloatOp::Lt => build_single_op(FloatOps::flt, op, builder, ctx)?,
-            jeff_optype::FloatOp::Lte => build_single_op(FloatOps::fle, op, builder, ctx)?,
-            jeff_optype::FloatOp::Abs => build_single_op(FloatOps::fabs, op, builder, ctx)?,
-            jeff_optype::FloatOp::Ceil => build_single_op(FloatOps::fceil, op, builder, ctx)?,
-            jeff_optype::FloatOp::Floor => build_single_op(FloatOps::ffloor, op, builder, ctx)?,
-            jeff_optype::FloatOp::Exp => build_single_op(FloatOps::fpow, op, builder, ctx)?,
-            jeff_optype::FloatOp::Max => build_single_op(FloatOps::fmax, op, builder, ctx)?,
-            jeff_optype::FloatOp::Min => build_single_op(FloatOps::fmin, op, builder, ctx)?,
+            jeff_optype::FloatOp::Add => ctx.build_single_op(FloatOps::fadd, op, builder)?,
+            jeff_optype::FloatOp::Sub => ctx.build_single_op(FloatOps::fsub, op, builder)?,
+            jeff_optype::FloatOp::Mul => ctx.build_single_op(FloatOps::fmul, op, builder)?,
+            jeff_optype::FloatOp::Pow => ctx.build_single_op(FloatOps::fpow, op, builder)?,
+            jeff_optype::FloatOp::Eq => ctx.build_single_op(FloatOps::feq, op, builder)?,
+            jeff_optype::FloatOp::Lt => ctx.build_single_op(FloatOps::flt, op, builder)?,
+            jeff_optype::FloatOp::Lte => ctx.build_single_op(FloatOps::fle, op, builder)?,
+            jeff_optype::FloatOp::Abs => ctx.build_single_op(FloatOps::fabs, op, builder)?,
+            jeff_optype::FloatOp::Ceil => ctx.build_single_op(FloatOps::fceil, op, builder)?,
+            jeff_optype::FloatOp::Floor => ctx.build_single_op(FloatOps::ffloor, op, builder)?,
+            jeff_optype::FloatOp::Exp => ctx.build_single_op(FloatOps::fpow, op, builder)?,
+            jeff_optype::FloatOp::Max => ctx.build_single_op(FloatOps::fmax, op, builder)?,
+            jeff_optype::FloatOp::Min => ctx.build_single_op(FloatOps::fmin, op, builder)?,
             // Unsupported _jeff_ float ops
             jeff_optype::FloatOp::Sqrt
             | jeff_optype::FloatOp::IsNan

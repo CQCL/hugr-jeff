@@ -19,12 +19,6 @@ pub fn qubits() -> Jeff<'static> {
     load_example_program("qubits")
 }
 
-/// Simple _jeff_ program applying gates to a 5-qubit arary.
-#[rstest::fixture]
-pub fn qarray() -> Jeff<'static> {
-    load_example_program("qarray")
-}
-
 /// An example of a very simple kernel, with no inputs and no outputs.
 ///
 /// It allocates 5 qubits and fully entangles them, performing a measurement into a classical int array.

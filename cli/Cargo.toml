@@ -20,7 +20,7 @@ clap = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 itertools = { workspace = true }
 hugr = { workspace = true }
-jeff-quantum = { workspace = true }
+jeff-format = { workspace = true }
 
 hugr-jeff = { path = ".." }
 

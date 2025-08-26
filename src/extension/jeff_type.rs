@@ -4,7 +4,7 @@ use std::sync::{Arc, Weak};
 
 use hugr::Extension;
 use hugr::ops::constant::{CustomConst, TryHash, ValueName};
-use hugr::types::{CustomType, Type, TypeArg, TypeBound, TypeName};
+use hugr::types::{CustomType, Term, Type, TypeArg, TypeBound, TypeName};
 use itertools::Itertools;
 use jeff::types::FloatPrecision;
 
@@ -14,6 +14,8 @@ use super::{JEFF_EXTENSION, JEFF_EXTENSION_ID};
 pub const QUREG_TYPE_ID: TypeName = TypeName::new_inline("qureg");
 
 /// Identifier for the _jeff_ integer register type
+///
+/// Parameterized by the bitwidth of the integers in the array.
 pub const INTREG_TYPE_ID: TypeName = TypeName::new_inline("intArray");
 
 /// Identifier for the _jeff_ floating-point register type
@@ -25,7 +27,7 @@ pub fn qureg_custom_type(extension_ref: &Weak<Extension>) -> CustomType {
         QUREG_TYPE_ID,
         vec![],
         JEFF_EXTENSION_ID,
-        TypeBound::Any,
+        TypeBound::Linear,
         extension_ref,
     )
 }
@@ -41,7 +43,7 @@ pub fn qureg_type() -> Type {
 pub fn intreg_custom_type(extension_ref: &Weak<Extension>, bitwidth: u8) -> CustomType {
     CustomType::new(
         INTREG_TYPE_ID,
-        vec![TypeArg::BoundedNat { n: bitwidth as u64 }],
+        vec![TypeArg::BoundedNat(bitwidth as u64)],
         JEFF_EXTENSION_ID,
         TypeBound::Copyable,
         extension_ref,
@@ -81,7 +83,7 @@ pub fn intreg_parametric_type(bitwidth_arg: TypeArg) -> Type {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 /// A constant array value.
 pub struct ConstIntReg {
-    /// The value widths.
+    /// The bitwidth of the integers in the array.
     bits: u8,
     /// The values, stored as u64s.
     values: Vec<u64>,
@@ -140,7 +142,7 @@ pub fn floatreg_custom_type(
     };
     CustomType::new(
         FLOATREG_TYPE_ID,
-        vec![TypeArg::BoundedNat { n: precision }],
+        vec![Term::BoundedNat(precision)],
         JEFF_EXTENSION_ID,
         TypeBound::Copyable,
         extension_ref,

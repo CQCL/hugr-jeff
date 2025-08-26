@@ -1,15 +1,16 @@
 # Optimizing Catalyst IR with TKET
 
-This example demonstrates the ability to optimize Catalyst IR through the *jeff* interchange format
-and the TKET compiler. The optimization applied to the example is Matthew Amy's
+This example demonstrates the ability to optimize Catalyst IR through the *jeff*
+interchange format and the TKET compiler. The optimization applied to the
+example is Matthew Amy's
 [phase polynomial optimization across control flow](https://dl.acm.org/doi/10.1145/3704873).
 
-The demo only involves one translation direction, since the reverse path has not been implemented
-in Catalyst/HUGR yet.
+The demo only involves one translation direction, since the reverse path has not
+been implemented in Catalyst/HUGR yet.
 
-The Catalyst converter prototype can be found [here](https://github.com/PennyLaneAI/catalyst-jeff).
-The HUGR converter prototype can be found [here](https://github.com/cqcl/hugr-jeff).
-
+The Catalyst converter prototype can be found
+[here](https://github.com/PennyLaneAI/catalyst-jeff). The HUGR converter
+prototype can be found [here](https://github.com/cqcl/hugr-jeff).
 
 ### Catalyst MLIR
 
@@ -51,17 +52,14 @@ func.func @optimize_me() -> (i1, i1) {
 }
 ```
 
-
 ### Catalyst *jeff*
 
-The generated *jeff* is available as `catalyst_tket_opt.jeff` (encoded)
-and `catalyst_tket_opt.txt` (decoded).
-
+The generated *jeff* is available as `catalyst_tket_opt.jeff` (encoded) and
+`catalyst_tket_opt.txt` (decoded).
 
 ### HUGR
+
 ![](catalyst_tket_opt_before.svg)
-
-
 
 ### Optimization
 

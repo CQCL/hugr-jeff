@@ -5,7 +5,7 @@ use hugr::extension::{ExtensionId, prelude as hugr_prelude};
 use hugr::std_extensions::arithmetic::{
     float_types as hugr_float_types, int_types as hugr_int_types,
 };
-use hugr::types::{Signature as HugrSignature, Type as HugrType, TypeArg, TypeName};
+use hugr::types::{Signature as HugrSignature, Term, Type as HugrType, TypeArg, TypeName};
 use itertools::Itertools;
 use jeff::types::{FloatPrecision, Type as JeffType};
 
@@ -142,9 +142,7 @@ pub fn hugr_signature_to_jeff(
 /// the next power of 2.
 fn jeff_int_width_to_hugr_arg(bits: u8) -> TypeArg {
     let log_width = bits.next_power_of_two().trailing_zeros();
-    TypeArg::BoundedNat {
-        n: log_width as u64,
-    }
+    Term::BoundedNat(log_width as u64)
 }
 
 #[cfg(test)]

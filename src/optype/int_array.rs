@@ -5,7 +5,6 @@ use crate::extension::{ConstIntReg, JeffOp};
 use crate::to_hugr::BuildContext;
 
 use super::JeffToHugrOp;
-use super::to_hugr::{build_constant_op, build_single_op};
 
 /// Translation for _jeff_ quantum ops
 impl JeffToHugrOp for jeff_optype::IntArrayOp<'_> {
@@ -29,38 +28,38 @@ impl JeffToHugrOp for jeff_optype::IntArrayOp<'_> {
             jeff_optype::IntArrayOp::Create => {
                 let bits = input_bits(0)?;
                 let inputs = op.input_count();
-                build_single_op(JeffOp::IntArrayCreate { bits, inputs }, op, builder, ctx)?
+                ctx.build_single_op(JeffOp::IntArrayCreate { bits, inputs }, op, builder)?
             }
             jeff_optype::IntArrayOp::GetIndex => {
                 let bits = input_bits(0)?;
-                build_single_op(JeffOp::IntArrayGet { bits }, op, builder, ctx)?
+                ctx.build_single_op(JeffOp::IntArrayGet { bits }, op, builder)?
             }
             jeff_optype::IntArrayOp::SetIndex => {
                 let bits = input_bits(0)?;
-                build_single_op(JeffOp::IntArraySet { bits }, op, builder, ctx)?
+                ctx.build_single_op(JeffOp::IntArraySet { bits }, op, builder)?
             }
             jeff_optype::IntArrayOp::Zero { bits } => {
-                build_single_op(JeffOp::IntArrayZero { bits: *bits }, op, builder, ctx)?
+                ctx.build_single_op(JeffOp::IntArrayZero { bits: *bits }, op, builder)?
             }
             jeff_optype::IntArrayOp::ConstArray8(array) => {
                 let bits = 3;
                 let const_val = ConstIntReg::new(array.values().map(|v| v as u64), bits);
-                build_constant_op(const_val, op, builder, ctx)?
+                ctx.build_constant_value(const_val, op, builder)?
             }
             jeff_optype::IntArrayOp::ConstArray16(array) => {
                 let bits = 4;
                 let const_val = ConstIntReg::new(array.values().map(|v| v as u64), bits);
-                build_constant_op(const_val, op, builder, ctx)?
+                ctx.build_constant_value(const_val, op, builder)?
             }
             jeff_optype::IntArrayOp::ConstArray32(array) => {
                 let bits = 5;
                 let const_val = ConstIntReg::new(array.values().map(|v| v as u64), bits);
-                build_constant_op(const_val, op, builder, ctx)?
+                ctx.build_constant_value(const_val, op, builder)?
             }
             jeff_optype::IntArrayOp::ConstArray64(array) => {
                 let bits = 6;
                 let const_val = ConstIntReg::new(array.values(), bits);
-                build_constant_op(const_val, op, builder, ctx)?
+                ctx.build_constant_value(const_val, op, builder)?
             }
             // TODO: jeff_optype::IntArrayOp::ConstArray1(array)
             _ => return Err(JeffToHugrError::unsupported_op(self)),

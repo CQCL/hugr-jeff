@@ -1,18 +1,21 @@
 use std::iter::once;
 
 use hugr::builder::{
-    BuildHandle, ConditionalBuilder, Container as _, DFGWrapper, Dataflow, SubContainer,
+    ConditionalBuilder, Container as _, Dataflow, DataflowSubContainer, SubContainer,
     TailLoopBuilder,
 };
+use hugr::extension::prelude::bool_t;
 use hugr::hugr::hugrmut::HugrMut;
 use hugr::ops::handle::NodeHandle;
 use hugr::std_extensions::arithmetic::int_ops::IntOpDef;
 use hugr::std_extensions::arithmetic::int_types::ConstInt;
-use hugr::{Hugr, HugrView as _};
+use hugr::types::Signature;
+use hugr::{HugrView as _, type_row};
+use itertools::Itertools;
 use jeff::reader::Region;
 use jeff::reader::optype::{self as jeff_optype, ControlFlowOp};
 
-use crate::to_hugr::{BuildContext, build_region};
+use crate::to_hugr::BuildContext;
 use crate::{JeffToHugrError, types};
 
 use super::JeffToHugrOp;
@@ -73,9 +76,44 @@ impl JeffToHugrOp for jeff_optype::ControlFlowOp<'_> {
                     ctx.register_output(value?.id(), cond_node, port);
                 }
             }
-            ControlFlowOp::Loop { region } => {
-                let mut loop_builder = TailLoopBuilder::new(vec![], input_types, vec![])?;
-                build_nested(&mut loop_builder, region)?;
+            ControlFlowOp::DoWhile { body, condition } => {
+                if !itertools::equal(
+                    op.input_types().map(|ty| ty.unwrap()),
+                    op.output_types().map(|ty| ty.unwrap()),
+                ) {
+                    return Err(JeffToHugrError::invalid_op_io("DoWhile", op));
+                }
+                let state_types = op
+                    .input_types()
+                    .map(|ty| types::jeff_to_hugr(ty.unwrap()))
+                    .collect_vec();
+
+                let mut loop_builder = TailLoopBuilder::new(vec![], state_types.clone(), vec![])?;
+
+                let body_dfg = {
+                    let mut body_builder = loop_builder.dfg_builder(
+                        Signature::new_endo(state_types.clone()),
+                        loop_builder.input_wires(),
+                    )?;
+                    build_nested(&mut body_builder, body)?;
+                    body_builder.finish_sub_container()?
+                };
+
+                let condition_dfg = {
+                    let mut condition_builder = loop_builder.dfg_builder(
+                        Signature::new(state_types, vec![bool_t()]),
+                        body_dfg.outputs(),
+                    )?;
+                    build_nested(&mut condition_builder, condition)?;
+                    condition_builder.finish_sub_container()?
+                };
+                let conditional_result = condition_dfg.out_wire(0);
+
+                // TODO: This assumes that the state returned by the body is copyable.
+                //
+                // See <https://github.com/unitaryfoundation/jeff/issues/4>
+                loop_builder.set_outputs(conditional_result, body_dfg.outputs())?;
+
                 // Insert into the current Hugr and update context
                 let loop_node = builder
                     .add_hugr(loop_builder.hugr().clone())
@@ -87,6 +125,74 @@ impl JeffToHugrOp for jeff_optype::ControlFlowOp<'_> {
                     ctx.register_output(value?.id(), loop_node, port);
                 }
             }
+            ControlFlowOp::While { body, condition } => {
+                if !itertools::equal(
+                    op.input_types().map(|ty| ty.unwrap()),
+                    op.output_types().map(|ty| ty.unwrap()),
+                ) {
+                    return Err(JeffToHugrError::invalid_op_io("DoWhile", op));
+                }
+                let state_types = op
+                    .input_types()
+                    .map(|ty| types::jeff_to_hugr(ty.unwrap()))
+                    .collect_vec();
+
+                let mut loop_builder = TailLoopBuilder::new(vec![], state_types.clone(), vec![])?;
+
+                let condition_dfg = {
+                    let mut condition_builder = loop_builder.dfg_builder(
+                        Signature::new(state_types.clone(), vec![bool_t()]),
+                        loop_builder.input_wires(),
+                    )?;
+                    build_nested(&mut condition_builder, condition)?;
+                    condition_builder.finish_sub_container()?
+                };
+                let conditional_result = condition_dfg.out_wire(0);
+
+                let body_conditional = {
+                    // TODO: This assumes that the state at the loop_builder input is copyable.
+                    //
+                    // See <https://github.com/unitaryfoundation/jeff/issues/4>
+                    let mut conditional_builder = loop_builder.conditional_builder(
+                        ([type_row!(), type_row!()], conditional_result),
+                        state_types
+                            .clone()
+                            .into_iter()
+                            .zip(loop_builder.input_wires()),
+                        state_types.clone().into(),
+                    )?;
+
+                    // False branch
+                    {
+                        let false_case = conditional_builder.case_builder(0)?;
+                        let inputs = false_case.input_wires();
+                        false_case.finish_with_outputs(inputs)?;
+                    }
+
+                    // True branch
+                    {
+                        let mut body_builder = conditional_builder.case_builder(1)?;
+                        build_nested(&mut body_builder, body)?;
+                        body_builder.finish_sub_container()?;
+                    }
+
+                    conditional_builder.finish_sub_container()?
+                };
+
+                loop_builder.set_outputs(conditional_result, body_conditional.outputs())?;
+
+                // Insert into the current Hugr and update context
+                let loop_node = builder
+                    .add_hugr(loop_builder.hugr().clone())
+                    .inserted_entrypoint;
+                for (port, value) in builder.hugr().node_inputs(loop_node).zip(op.inputs()) {
+                    ctx.register_input(value?.id(), loop_node, port);
+                }
+                for (port, value) in builder.hugr().node_outputs(loop_node).zip(op.outputs()) {
+                    ctx.register_output(value?.id(), loop_node, port);
+                }
+            }
+
             ControlFlowOp::For { region } => {
                 let Ok(JeffType::Int { bits }) = op.input_types().next().unwrap() else {
                     panic!("Bad input to for loop")
@@ -153,14 +259,13 @@ impl JeffToHugrOp for jeff_optype::ControlFlowOp<'_> {
     }
 }
 
-fn build_nested<H, T>(
-    builder: &mut DFGWrapper<H, BuildHandle<T>>,
+/// Build a region nested inside a builder.
+///
+/// Uses the builder's input and output nodes for the new `BuildContext` input and output wires.
+fn build_nested(
+    builder: &mut impl hugr::builder::Dataflow,
     region: &Region,
-) -> Result<(), JeffToHugrError>
-where
-    H: AsMut<Hugr>,
-    H: AsRef<Hugr>,
-{
+) -> Result<(), JeffToHugrError> {
     let inp_node = builder.input().node();
     let out_node = builder.output().node();
     let mut ctx = BuildContext::default();
@@ -170,6 +275,6 @@ where
     for (port, value) in builder.hugr().node_inputs(out_node).zip(region.targets()) {
         ctx.register_input(value?.id(), out_node, port);
     }
-    build_region(*region, builder, &mut ctx)?;
+    ctx.build_region(*region, builder)?;
     Ok(())
 }
