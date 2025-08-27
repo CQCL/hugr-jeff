@@ -1,21 +1,19 @@
-use std::iter::once;
-
 use hugr::builder::{
     ConditionalBuilder, Container as _, Dataflow, DataflowSubContainer, SubContainer,
     TailLoopBuilder,
 };
 use hugr::extension::prelude::bool_t;
-use hugr::hugr::hugrmut::HugrMut;
 use hugr::ops::handle::NodeHandle;
 use hugr::std_extensions::arithmetic::int_ops::IntOpDef;
-use hugr::std_extensions::arithmetic::int_types::ConstInt;
-use hugr::types::Signature;
+use hugr::std_extensions::arithmetic::int_types::int_type;
+use hugr::types::{Signature, SumType, TypeRow};
 use hugr::{HugrView as _, type_row};
 use itertools::Itertools;
 use jeff::reader::Region;
 use jeff::reader::optype::{self as jeff_optype, ControlFlowOp};
 
 use crate::to_hugr::BuildContext;
+use crate::types::{jeff_int_width_to_hugr_arg, jeff_int_width_to_hugr_width};
 use crate::{JeffToHugrError, types};
 
 use super::JeffToHugrOp;
@@ -194,65 +192,150 @@ impl JeffToHugrOp for jeff_optype::ControlFlowOp<'_> {
             }
 
             ControlFlowOp::For { region } => {
+                // Region inputs:
+                // - `int(N)`: The (signed) start value.
+                // - `int(N)`: The (signed) stop value (exclusive).
+                // - `int(N)`: The (signed) step value.
+                // - `... state`: Any number of values that are passed to the loop body.
                 let Ok(JeffType::Int { bits }) = op.input_types().next().unwrap() else {
-                    panic!("Bad input to for loop")
+                    return Err(JeffToHugrError::invalid_op_io("For", op));
                 };
-                let log_width = bits.next_power_of_two().trailing_zeros() as u8;
-                let mut loop_builder = TailLoopBuilder::new(vec![], input_types.clone(), vec![])?;
-                // Emit check if current iter is less than the bound
-                let counter = loop_builder.input_wires().next().unwrap();
-                let test = loop_builder
-                    .add_dataflow_op(IntOpDef::ile_s.with_log_width(log_width), [counter])?;
-                let mut cond = loop_builder.conditional_builder(
-                    (vec![vec![].into(), vec![].into()], test.out_wire(0)),
-                    input_types.into_iter().zip(loop_builder.input_wires()),
-                    output_types.into(),
-                )?;
-                // Emit loop body conditioned on the test being true
-                let mut ok_case = cond.case_builder(0)?;
-                build_nested(&mut ok_case, region)?;
-                // Otherwise, the break case is just identity
-                let mut break_case = cond.case_builder(1)?;
-                break_case.set_outputs(break_case.input_wires().skip(1))?;
-                let cond = cond.finish_sub_container()?;
-                // Increment counter
-                let one = loop_builder.add_load_value(ConstInt::new_u(log_width, 1).unwrap());
-                let counter = loop_builder
-                    .add_dataflow_op(IntOpDef::iadd.with_log_width(log_width), [counter, one])?
-                    .out_wire(0);
-                loop_builder.set_outputs(test.out_wire(0), once(counter).chain(cond.outputs()))?;
+                let log_width = jeff_int_width_to_hugr_width(bits);
+                let int_t = || int_type(jeff_int_width_to_hugr_arg(bits));
+                let state_types = output_types;
+
+                // Construct a loop that takes
+                // - An integer counter
+                // - The loop body inputs
+                // And then checks if the counter is zero.
+                // - If yes, the loop is done.
+                // - If no, decrease the counter and run the loop body.
+                let loop_hugr = {
+                    let mut loop_builder = TailLoopBuilder::new(
+                        vec![int_t(), int_t(), int_t()],
+                        state_types.clone(),
+                        vec![],
+                    )?;
+
+                    // Emit check if current iteration is less than the bound
+                    let mut input_wires = loop_builder.input_wires();
+                    let start_value = input_wires.next().unwrap();
+                    let stop_value = input_wires.next().unwrap();
+                    let step_value = input_wires.next().unwrap();
+                    let state_inputs = input_wires;
+
+                    // Test if the counter is less than the stop value
+                    let less_than_stop = loop_builder.add_dataflow_op(
+                        IntOpDef::ilt_s.with_log_width(log_width),
+                        [start_value, stop_value],
+                    )?;
+
+                    // Now branch into two cases, depending on whether the counter is less than the stop value.
+                    let condition = {
+                        let conditional_sum_type: SumType =
+                            SumType::new([vec![int_t(), int_t(), int_t()], vec![]]);
+                        let conditional_outputs: TypeRow =
+                            std::iter::once(conditional_sum_type.clone().into())
+                                .chain(state_types.clone())
+                                .collect_vec()
+                                .into();
+                        let mut cond = loop_builder.conditional_builder(
+                            ([type_row![], type_row!()], less_than_stop.out_wire(0)),
+                            [
+                                (int_t(), start_value),
+                                (int_t(), stop_value),
+                                (int_t(), step_value),
+                            ]
+                            .into_iter()
+                            .chain(state_types.clone().into_iter().zip(state_inputs)),
+                            conditional_outputs,
+                        )?;
+
+                        // If the counter is less than the stop value, run the loop body, decrement the counter and return a continue signal.
+                        {
+                            let mut continue_case = cond.case_builder(1)?;
+                            let mut input_wires = continue_case.input_wires();
+                            let start_value = input_wires.next().unwrap();
+                            let stop_value = input_wires.next().unwrap();
+                            let step_value = input_wires.next().unwrap();
+                            let state_inputs = input_wires;
+
+                            // Add a DFG region with the loop's body.
+                            let body = {
+                                let body_inputs = std::iter::once(int_t())
+                                    .chain(state_types.clone())
+                                    .collect_vec();
+                                let body_outputs = state_types.clone();
+                                let mut body = continue_case.dfg_builder(
+                                    Signature::new(body_inputs, body_outputs),
+                                    std::iter::once(start_value).chain(state_inputs),
+                                )?;
+                                build_nested(&mut body, region)?;
+                                body.finish_sub_container()?
+                            };
+
+                            // Increment the counter by `step_value`
+                            let start_value = continue_case
+                                .add_dataflow_op(
+                                    IntOpDef::iadd.with_log_width(log_width),
+                                    [start_value, step_value],
+                                )?
+                                .out_wire(0);
+
+                            // Return the new counter value and the continue signal
+                            let continue_flag = continue_case.make_sum(
+                                0,
+                                [vec![int_t(), int_t(), int_t()].into(), type_row![]],
+                                [start_value, stop_value, step_value],
+                            )?;
+
+                            continue_case.set_outputs(
+                                std::iter::once(continue_flag).chain(body.outputs()),
+                            )?;
+                        }
+
+                        // Otherwise, if the counter is greater than or equal to the stop value, return a break signal.
+                        {
+                            let mut break_case = cond.case_builder(0)?;
+                            let mut input_wires = break_case.input_wires();
+                            let _start_value = input_wires.next().unwrap();
+                            let _stop_value = input_wires.next().unwrap();
+                            let _step_value = input_wires.next().unwrap();
+                            let state_inputs = input_wires;
+
+                            // Return the break signal
+                            let break_flag = break_case.make_sum(
+                                1,
+                                [vec![int_t(), int_t(), int_t()].into(), type_row![]],
+                                [],
+                            )?;
+
+                            break_case
+                                .set_outputs(std::iter::once(break_flag).chain(state_inputs))?;
+                        }
+
+                        cond.finish_sub_container()?
+                    };
+
+                    let mut condition_outputs = condition.outputs();
+                    let continue_flag = condition_outputs.next().unwrap();
+                    let rest = condition_outputs;
+                    loop_builder.set_outputs(continue_flag, rest)?;
+
+                    // Avoid validating the resulting hugr, as it may contain unconnected wires in the loop body.
+                    // (The build context will connect them at a later stage.)
+                    std::mem::take(loop_builder.hugr_mut())
+                };
 
                 // Insert into the current hugr and update context
-                let res = builder.add_hugr(loop_builder.hugr().clone());
+                let res = builder.add_hugr(loop_hugr);
                 let loop_node = res.inserted_entrypoint;
-                let test_node = res.node_map.get(&test.node()).unwrap();
-                ctx.register_input(
-                    op.input(0).unwrap()?.id(),
-                    *test_node,
-                    builder.hugr().node_inputs(*test_node).nth(1).unwrap(),
-                );
-                for (port, value) in builder
-                    .hugr()
-                    .node_inputs(loop_node)
-                    .skip(1)
-                    .zip(op.inputs().skip(1))
-                {
+                for (port, value) in builder.hugr().node_inputs(loop_node).zip(op.inputs()) {
                     ctx.register_input(value?.id(), loop_node, port);
                 }
-                for (port, value) in builder
-                    .hugr()
-                    .node_outputs(loop_node)
-                    .skip(1)
-                    .zip(op.outputs())
-                {
+                for (port, value) in builder.hugr().node_outputs(loop_node).zip(op.outputs()) {
                     ctx.register_output(value?.id(), loop_node, port);
                 }
-                // Insert zero as the intial counter
-                let zero = builder.add_load_value(ConstInt::new_u(log_width, 0).unwrap());
-                let counter_port = builder.hugr().node_inputs(loop_node).next().unwrap();
-                builder
-                    .hugr_mut()
-                    .connect(zero.node(), zero.source(), loop_node, counter_port);
             }
         }
         Ok(())

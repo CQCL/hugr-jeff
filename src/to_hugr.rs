@@ -203,9 +203,7 @@ impl BuildContext {
         }
         value_id
     }
-}
 
-impl BuildContext {
     /// Build the HUGR program by traversing the _jeff_.
     fn build_module(module: jeff::reader::Module<'_>) -> Result<Hugr, JeffToHugrError> {
         let mut builder = ModuleBuilder::new();
@@ -290,6 +288,18 @@ impl BuildContext {
         }
 
         // Add all the missing edges.
+        self.connect_hyperedges(builder)?;
+
+        Ok(())
+    }
+
+    /// Connect all the hyperedges between inputs and outputs with the same value id.
+    ///
+    /// See [`BuildContext::register_input`] and [`BuildContext::register_output`] for more details.
+    fn connect_hyperedges(
+        &mut self,
+        builder: &mut impl hugr::builder::Dataflow,
+    ) -> Result<(), JeffToHugrError> {
         let output_edges = mem::take(&mut self.output_edges);
         for (value_id, outputs) in output_edges {
             let Some(inputs) = self.input_edges.get(&value_id) else {
@@ -319,7 +329,6 @@ impl BuildContext {
                 }
             }
         }
-
         Ok(())
     }
 
@@ -440,7 +449,7 @@ mod test {
     #[rstest]
     #[case::qubits(qubits())]
     #[case::catalyst_simple(catalyst_simple())]
-    #[case::catalyst_simple(catalyst_tket_opt())]
+    #[case::catalyst_tket(catalyst_tket_opt())]
     fn test_to_hugr_qubits(#[case] jeff: Jeff<'static>) {
         let hugr = jeff_to_hugr(&jeff).unwrap();
 

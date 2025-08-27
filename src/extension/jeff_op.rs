@@ -190,7 +190,7 @@ impl JeffOp {
     }
 
     /// Returns a [`JeffOp::QGate`] for a _jeff_ quantum gate.
-    pub fn jeff_gate_op(name: impl ToString, jeff_op: &jeff::reader::optype::GateOp<'_>) -> Self {
+    pub fn jeff_gate_op(name: impl ToString, jeff_op: jeff::reader::optype::GateOp<'_>) -> Self {
         let base_qubits = jeff_op.num_qubits() - jeff_op.control_qubits as usize;
         Self::quantum_gate(
             name.to_string(),

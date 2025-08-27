@@ -140,9 +140,18 @@ pub fn hugr_signature_to_jeff(
 ///
 /// Hugr only supports int widths of the form 2^n, so we extend the int width to
 /// the next power of 2.
-fn jeff_int_width_to_hugr_arg(bits: u8) -> TypeArg {
-    let log_width = bits.next_power_of_two().trailing_zeros();
+pub(crate) fn jeff_int_width_to_hugr_arg(bits: u8) -> TypeArg {
+    let log_width = jeff_int_width_to_hugr_width(bits);
     Term::BoundedNat(log_width as u64)
+}
+
+/// Rounds a _jeff_ integer width to the next power of 2, to cast it as a hugr
+/// integer bitwidth parameter.
+///
+/// Hugr only supports int widths of the form 2^n, so we extend the int width to
+/// the next power of 2.
+pub(crate) fn jeff_int_width_to_hugr_width(bits: u8) -> u8 {
+    bits.next_power_of_two().trailing_zeros() as u8
 }
 
 #[cfg(test)]
